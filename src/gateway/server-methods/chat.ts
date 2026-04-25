@@ -2137,11 +2137,12 @@ export const chatHandlers: GatewayRequestHandlers = {
         if (!att || !att.data) continue;
 
         try {
-          let fileName = `media-${crypto.randomUUID()}`;
+          const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+          let fileName = `media-${timestamp}-${crypto.randomUUID()}`;
           if (att.label) {
             const baseName = path.basename(att.label);
             if (baseName && baseName !== "." && baseName !== "/") {
-              fileName = `${crypto.randomUUID()}-${baseName}`;
+              fileName = `${timestamp}-${baseName}`;
             }
           }
 
