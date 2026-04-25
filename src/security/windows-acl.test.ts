@@ -1,6 +1,14 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WindowsAclEntry, WindowsAclSummary } from "./windows-acl.js";
 
+const mockLogger = vi.hoisted(() => ({
+  warn: vi.fn(),
+}));
+
+vi.mock("../logging/subsystem.js", () => ({
+  createSubsystemLogger: vi.fn(() => mockLogger),
+}));
+
 const MOCK_USERNAME = "MockUser";
 const userInfoMock = vi.hoisted(() =>
   vi.fn(() => ({
@@ -533,6 +541,11 @@ Successfully processed 1 files`;
       // Unknown SID stays in untrustedGroup (resolveCurrentUserSid returned null)
       expect(result.untrustedGroup).toHaveLength(1);
       expect(mockExec).toHaveBeenCalledTimes(2);
+
+      // Verify structured logger was called instead of console.warn
+      expect(mockLogger.warn).toHaveBeenCalledWith("resolveCurrentUserSid failed", {
+        error: "Error: whoami: command not found",
+      });
     });
 
     it("uses SystemRoot for Windows system commands when available", async () => {
