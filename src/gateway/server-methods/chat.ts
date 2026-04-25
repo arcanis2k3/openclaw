@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { CURRENT_SESSION_VERSION, SessionManager } from "@mariozechner/pi-coding-agent";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
@@ -23,6 +24,8 @@ import {
 import { isAudioFileName } from "../../media/mime.js";
 import type { PromptImageOrderEntry } from "../../media/prompt-image-order.js";
 import { type SavedMedia, saveMediaBuffer } from "../../media/store.js";
+import { resolveUserPath } from "../../utils.js";
+import fsPromises from "node:fs/promises";
 import { createChannelReplyPipeline } from "../../plugin-sdk/channel-reply-pipeline.js";
 import { isPluginOwnedSessionBindingRecord } from "../../plugins/conversation-binding.js";
 import { normalizeInputProvenance, type InputProvenance } from "../../sessions/input-provenance.js";
@@ -2111,6 +2114,47 @@ export const chatHandlers: GatewayRequestHandlers = {
     const systemProvenanceReceipt = systemReceiptResult.receipt;
     const stopCommand = isChatStopCommandText(inboundMessage);
     const normalizedAttachments = normalizeRpcAttachmentsToChatAttachments(p.attachments);
+    const rawSessionKey = p.sessionKey;
+    const { cfg, entry, canonicalKey: sessionKey } = loadSessionEntry(rawSessionKey);
+
+    const effectiveChannel = explicitOriginResult.value?.channel ?? entry?.channel ?? "unknown";
+    if (normalizedAttachments.length > 0) {
+      const senderId =
+        explicitOriginResult.value?.from ??
+        entry?.senderId ??
+        "unknown";
+      const sanitizedSenderId = senderId.replace(/[^a-zA-Z0-9_+-]/g, "_");
+      const baseDir = resolveUserPath(`~/incoming-media/${effectiveChannel}/${sanitizedSenderId}`);
+
+      // Ensure the base directory exists before processing attachments
+      try {
+        await fsPromises.mkdir(baseDir, { recursive: true });
+      } catch (err) {
+        context.logGateway.warn(`chat.send: Failed to create directory for incoming media for ${senderId}: ${formatForLog(err)}`);
+      }
+
+      for (const att of normalizedAttachments) {
+        if (!att || !att.data) continue;
+
+        try {
+          let fileName = `media-${crypto.randomUUID()}`;
+          if (att.label) {
+            const baseName = path.basename(att.label);
+            if (baseName && baseName !== "." && baseName !== "/") {
+              fileName = `${crypto.randomUUID()}-${baseName}`;
+            }
+          }
+
+          const destPath = path.join(baseDir, fileName);
+          const buf = Buffer.from(att.data, "base64");
+          await fsPromises.writeFile(destPath, buf);
+          context.logGateway.debug(`chat.send: Saved incoming media to ${destPath}`);
+        } catch (err) {
+          context.logGateway.warn(`chat.send: Failed to save incoming media for ${senderId}: ${formatForLog(err)}`);
+        }
+      }
+    }
+
     const rawMessage = inboundMessage.trim();
     if (!rawMessage && normalizedAttachments.length === 0) {
       respond(
@@ -2120,8 +2164,6 @@ export const chatHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const rawSessionKey = p.sessionKey;
-    const { cfg, entry, canonicalKey: sessionKey } = loadSessionEntry(rawSessionKey);
     const deletedAgentId = resolveDeletedAgentIdFromSessionKey(cfg, sessionKey);
     if (deletedAgentId !== null) {
       respond(
