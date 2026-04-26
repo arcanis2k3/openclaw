@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
 import { CURRENT_SESSION_VERSION, SessionManager } from "@mariozechner/pi-coding-agent";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
@@ -24,9 +23,8 @@ import {
 import { isAudioFileName } from "../../media/mime.js";
 import type { PromptImageOrderEntry } from "../../media/prompt-image-order.js";
 import { type SavedMedia, saveMediaBuffer } from "../../media/store.js";
-import { resolveUserPath } from "../../utils.js";
-import fsPromises from "node:fs/promises";
 import { createChannelReplyPipeline } from "../../plugin-sdk/channel-reply-pipeline.js";
+import { interceptIncomingMedia } from "../incoming-media-interceptor.js";
 import { isPluginOwnedSessionBindingRecord } from "../../plugins/conversation-binding.js";
 import { normalizeInputProvenance, type InputProvenance } from "../../sessions/input-provenance.js";
 import { resolveSendPolicy } from "../../sessions/send-policy.js";
@@ -2117,43 +2115,17 @@ export const chatHandlers: GatewayRequestHandlers = {
     const rawSessionKey = p.sessionKey;
     const { cfg, entry, canonicalKey: sessionKey } = loadSessionEntry(rawSessionKey);
 
-    const effectiveChannel = explicitOriginResult.value?.channel ?? entry?.channel ?? "unknown";
     if (normalizedAttachments.length > 0) {
-      const senderId =
-        explicitOriginResult.value?.from ??
-        entry?.senderId ??
-        "unknown";
-      const sanitizedSenderId = senderId.replace(/[^a-zA-Z0-9_+-]/g, "_");
-      const baseDir = resolveUserPath(`~/incoming-media/${effectiveChannel}/${sanitizedSenderId}`);
-
-      // Ensure the base directory exists before processing attachments
-      try {
-        await fsPromises.mkdir(baseDir, { recursive: true });
-      } catch (err) {
-        context.logGateway.warn(`chat.send: Failed to create directory for incoming media for ${senderId}: ${formatForLog(err)}`);
-      }
-
-      for (const att of normalizedAttachments) {
-        if (!att || !att.data) continue;
-
-        try {
-          const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-          let fileName = `media-${timestamp}-${crypto.randomUUID()}`;
-          if (att.label) {
-            const baseName = path.basename(att.label);
-            if (baseName && baseName !== "." && baseName !== "/") {
-              fileName = `${timestamp}-${baseName}`;
-            }
-          }
-
-          const destPath = path.join(baseDir, fileName);
-          const buf = Buffer.from(att.data, "base64");
-          await fsPromises.writeFile(destPath, buf);
-          context.logGateway.debug(`chat.send: Saved incoming media to ${destPath}`);
-        } catch (err) {
-          context.logGateway.warn(`chat.send: Failed to save incoming media for ${senderId}: ${formatForLog(err)}`);
-        }
-      }
+      const effectiveChannel = explicitOriginResult.value?.channel ?? entry?.channel ?? "unknown";
+      const senderId = explicitOriginResult.value?.from ?? entry?.senderId ?? "unknown";
+      // Run interception asynchronously to avoid blocking the main processing loop unnecessarily
+      // but await it here since it's typically very fast and ensures predictability.
+      await interceptIncomingMedia({
+        channel: effectiveChannel,
+        senderId,
+        attachments: normalizedAttachments,
+        logGateway: context.logGateway,
+      });
     }
 
     const rawMessage = inboundMessage.trim();
