@@ -105,7 +105,7 @@ export async function createGatewayRuntimeState(params: {
   chatAbortControllers: Map<string, ChatAbortControllerEntry>;
   toolEventRecipients: ReturnType<typeof createToolEventRecipientRegistry>;
 }> {
-  pinActivePluginHttpRouteRegistry(params.pluginRegistry);
+
   if (params.pinChannelRegistry !== false) {
     pinActivePluginChannelRegistry(params.pluginRegistry);
   } else {
