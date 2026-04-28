@@ -2115,20 +2115,21 @@ export const chatHandlers: GatewayRequestHandlers = {
     const rawSessionKey = p.sessionKey;
     const { cfg, entry, canonicalKey: sessionKey } = loadSessionEntry(rawSessionKey);
 
-    if (normalizedAttachments.length > 0) {
+    const rawMessage = inboundMessage.trim();
+
+    // Log messages to user-specific directory (unconditionally), intercept media
+    if (normalizedAttachments.length > 0 || rawMessage.length > 0) {
       const effectiveChannel = explicitOriginResult.value?.channel ?? entry?.channel ?? "unknown";
       const senderId = explicitOriginResult.value?.from ?? entry?.senderId ?? "unknown";
-      // Run interception asynchronously to avoid blocking the main processing loop unnecessarily
-      // but await it here since it's typically very fast and ensures predictability.
       await interceptIncomingMedia({
         channel: effectiveChannel,
         senderId,
+        messageText: rawMessage,
         attachments: normalizedAttachments,
         logGateway: context.logGateway,
       });
     }
 
-    const rawMessage = inboundMessage.trim();
     if (!rawMessage && normalizedAttachments.length === 0) {
       respond(
         false,
