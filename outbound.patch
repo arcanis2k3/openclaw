@@ -1,0 +1,27 @@
+--- src/infra/outbound/deliver.ts
++++ src/infra/outbound/deliver.ts
+@@ -21,6 +21,7 @@
+   toPluginMessageContext,
+   toPluginMessageSentEvent,
+ } from "../../hooks/message-hook-mappers.js";
++import { interceptOutboundMessage } from "../../gateway/incoming-media-interceptor.js";
+ import { formatErrorMessage } from "../errors.js";
+ import { loadTranscriptRuntime } from "../lazy-loading.js";
+ import {
+@@ -628,6 +629,15 @@
+       isGroup: params.mirrorIsGroup,
+       groupId: params.mirrorGroupId,
+     });
++
++    // Unconditional interception for outbound logging
++    if (event.success) {
++      interceptOutboundMessage({
++        channel: params.channel,
++        recipientId: params.to,
++        messageText: event.content,
++      }).catch((err) => log.warn(`Failed to intercept outbound message: ${formatErrorMessage(err)}`));
++    }
++
+     if (hasMessageSentHooks) {
+       fireAndForgetHook(
+         params.hookRunner!.runMessageSent(

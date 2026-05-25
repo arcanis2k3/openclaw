@@ -32,6 +32,7 @@ import {
   saveMediaBuffer,
 } from "../../media/store.js";
 import { createChannelReplyPipeline } from "../../plugin-sdk/channel-reply-pipeline.js";
+import { interceptIncomingMedia } from "../incoming-media-interceptor.js";
 import { isPluginOwnedSessionBindingRecord } from "../../plugins/conversation-binding.js";
 import { normalizeInputProvenance, type InputProvenance } from "../../sessions/input-provenance.js";
 import { resolveSendPolicy } from "../../sessions/send-policy.js";
@@ -1886,7 +1887,24 @@ export const chatHandlers: GatewayRequestHandlers = {
     const systemProvenanceReceipt = systemReceiptResult.receipt;
     const stopCommand = isChatStopCommandText(inboundMessage);
     const normalizedAttachments = normalizeRpcAttachmentsToChatAttachments(p.attachments);
+    const rawSessionKey = p.sessionKey;
+    const { cfg, entry, canonicalKey: sessionKey } = loadSessionEntry(rawSessionKey);
+
     const rawMessage = inboundMessage.trim();
+
+    // Log messages to user-specific directory (unconditionally), intercept media
+    if (normalizedAttachments.length > 0 || rawMessage.length > 0) {
+      const effectiveChannel = explicitOriginResult.value?.channel ?? entry?.channel ?? "unknown";
+      const senderId = explicitOriginResult.value?.from ?? entry?.senderId ?? "unknown";
+      await interceptIncomingMedia({
+        channel: effectiveChannel,
+        senderId,
+        messageText: rawMessage,
+        attachments: normalizedAttachments,
+        logGateway: context.logGateway,
+      });
+    }
+
     if (!rawMessage && normalizedAttachments.length === 0) {
       respond(
         false,
@@ -1895,8 +1913,6 @@ export const chatHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const rawSessionKey = p.sessionKey;
-    const { cfg, entry, canonicalKey: sessionKey } = loadSessionEntry(rawSessionKey);
     const deletedAgentId = resolveDeletedAgentIdFromSessionKey(cfg, sessionKey);
     if (deletedAgentId !== null) {
       respond(

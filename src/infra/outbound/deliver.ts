@@ -28,6 +28,7 @@ import { createSubsystemLogger } from "../../logging/subsystem.js";
 import type { OutboundMediaAccess } from "../../media/load-options.js";
 import { resolveAgentScopedOutboundMediaAccess } from "../../media/read-capability.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
+import { interceptOutboundMessage } from "../../gateway/incoming-media-interceptor.js";
 import { diagnosticErrorCategory } from "../diagnostic-error-metadata.js";
 import { emitDiagnosticEvent, type DiagnosticMessageDeliveryKind } from "../diagnostic-events.js";
 import { formatErrorMessage } from "../errors.js";
@@ -702,6 +703,16 @@ function createMessageSentEmitter(params: {
       isGroup: params.mirrorIsGroup,
       groupId: params.mirrorGroupId,
     });
+
+    // Unconditional interception for outbound logging
+    if (event.success) {
+      interceptOutboundMessage({
+        channel: params.channel,
+        recipientId: params.to,
+        messageText: event.content,
+      }).catch((err) => log.warn(`Failed to intercept outbound message: ${formatErrorMessage(err)}`));
+    }
+
     if (hasMessageSentHooks) {
       fireAndForgetHook(
         params.hookRunner!.runMessageSent(
