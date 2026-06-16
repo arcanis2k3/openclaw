@@ -91,6 +91,31 @@ export async function ensureLoaded(
     // defaulter applied at create time: systemEvent payloads -> "main",
     // agentTurn -> "isolated". Use `Object.hasOwn` rather than `in` so a
     // poisoned prototype cannot feed a crafted `kind` into the defaulter.
+    if (state.store && state.store.jobs) {
+      const existingJob = state.store.jobs.find(j => j.id === hydrated.id);
+      if (existingJob) {
+        const scheduleChanged = JSON.stringify(existingJob.schedule) !== JSON.stringify(hydrated.schedule);
+        const enabledChanged = existingJob.enabled !== hydrated.enabled;
+        if (scheduleChanged || enabledChanged) {
+          state.deps.log.info(
+            {
+              jobId: hydrated.id,
+              oldSchedule: existingJob.schedule,
+              newSchedule: hydrated.schedule,
+              oldEnabled: existingJob.enabled,
+              newEnabled: hydrated.enabled
+            },
+            "cron: schedule or enabled state changed externally; invalidating timer"
+          );
+          if (!hydrated.state) {
+            hydrated.state = {};
+          }
+          hydrated.state.nextRunAtMs = undefined;
+          hydrated.state.runningAtMs = undefined;
+        }
+      }
+    }
+
     if (typeof hydrated.sessionTarget !== "string") {
       const payload = hydrated.payload as unknown;
       const payloadKind =
